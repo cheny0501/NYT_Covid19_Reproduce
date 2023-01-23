@@ -1,0 +1,227 @@
+---
+title: "BST 270 Individual Project"
+output:
+  pdf_document: default
+  html_document: default
+urlcolor: blue
+---
+
+In May 2020, the Georgia Department of Public Health posted the following plot to illustrate the number of confirmed COVID-19 cases in their hardest-hit counties over a two-week period. Health officials claimed that the plot provided evidence that COVID-19 cases were decreasing and made the argument for reopening the state.
+
+![](georgia.png){ width=75% }
+
+The plot was heavily criticized by the statistical community and several media outlets for its deceptive portrayal of COVID-19 trends in Georgia. Whether the end result was due to malicious intent or simply poor judgment, it is incredibly irresponsible to publish data visualizations that obscure and distort the truth. 
+
+**Critique: The dates on the x-axis were placed in the wrong order to show the descending trend in this plot. It is totally nonsense for a time-based plot.**
+
+Data visualization is an incredibly powerful tool that can affect health policy decisions. Ensuring they are easy to interpret, and more importantly, showcase accurate insights from data is paramount for scientific transparency and the health of individuals. For this assignment you are tasked with reproducing COVID-19 visualizations and tables published by the [New York Times](https://www.nytimes.com/interactive/2020/us/coronavirus-us-cases.html).
+Specifically, you will attempt to reproduce the following for January 17th, 2021:
+
+1. New cases as a function of time with a rolling average plot - the first plot on the page (you don't need to recreate the colors or theme)
+2. Table of cases, hospitalizations and deaths - the first table on the page
+3. The county-level map for previous week ('Hot spots') - the second plot on the page (only the 'Hot Spots' plot)
+4. Table of cases by state - the second table on the page (do not need to include per 100,000 or per capita columns)
+
+Data for cases and deaths can be downloaded from this [NYT GitHub repository](https://github.com/nytimes/covid-19-data) (use `us-counties.csv`). Data for hospitalizations can be downloaded from [The COVID Tracking Project](https://covidtracking.com/data). The project must be submitted in the form of a Jupyter notebook or RMarkdown file and corresponding compiled/knitted PDF, with commented code and text interspersed, including a **brief critique of the reproducibility of each plot and table**. All project documents must be uploaded to a GitHub repository each student will create within the [reproducible data science organization](https://github.com/reproducibleresearch). The repository must also include a README file describing the contents of the repository and how to reproduce all results. You should keep in mind the file and folder structure we covered in class and make the reproducible process as automated as possible.
+
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
+# Load libraries
+library(ggplot2)
+library(tidyverse)
+library(stringr)
+library(zoo)
+library(lubridate)
+library(kableExtra)
+```
+
+Tips:
+
+* You can extract the number of new cases from the case totals using the `lag` function. In this toy example, cases records the daily total/cumulative number of cases over a two-week period. By default, the lag function simply shifts the vector of cases back by one. The number of new cases on each day is then the difference between `cases` and `lag(cases)`.
+
+```{r, warning=FALSE}
+#cases = c(13, 15, 18, 22, 29, 39, 59, 61, 62, 67, 74, 89, 108, 122)
+#new_cases = cases - lag(cases)
+#new_cases
+```
+
+* You can write your own function to calculate a seven-day rolling average, but the `zoo` package already provides the `rollmean` function. Below, the `k = 7` argument tells the function to use a rolling window of seven entries. `fill = NA` tells `rollmean` to return `NA` for days where the seven-day rolling average can’t be calculated (e.g. on the first day, there are no days that come before, so the sliding window can’t cover seven days). That way, `new_cases_7dayavg` will be the same length as `cases` and `new_cases`, which would come in handy if they all belonged to the same data frame.
+
+```{r, message=FALSE}
+#new_cases_7dayavg = rollmean(new_cases, k = 7, fill = NA)
+#new_cases_7dayavg
+```
+
+
+```{r}
+# read data for 2020 and 2021
+c2020 <- read_csv("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties-2020.csv")
+c2021 <- read_csv("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties-2021.csv")
+
+# merge datasets
+counties <- rbind(c2020,c2021)
+summary(counties)
+
+# subset the data before Jan 18 2021
+counties <- counties[counties$date <= "2021-01-23",]
+summary(counties$date)
+
+```
+
+1. New cases as a function of time with a rolling average plot - the first plot on the page (you don't need to recreate the colors or theme)
+
+```{r}
+# subset only date, cases, and deaths for plot1
+subset <- counties[, c("date", "cases", "deaths")]
+
+# detected NA
+subset[is.na(subset)] <- 0
+
+# combine cases and deaths for same date
+subset <- subset %>% 
+  group_by(date) %>% 
+  summarise(sum_cases = sum(cases), sum_deaths = sum (deaths)) %>% 
+  mutate(days = date - first(date) + 1)
+summary(subset)
+
+# create new_cases and 
+subset <- subset %>% mutate(new_cases = sum_cases - lag(sum_cases))
+  
+# rolling average for 7 days
+subset$new_cases_7dayavg = rollmean(subset$new_cases, k = 7, fill = NA)
+
+```
+
+
+```{r, warning=FALSE}
+# Plot 1
+ggplot(subset) + 
+  # bar plot for new cases
+  geom_bar(aes(x=date, y=new_cases), stat="identity", fill="red",width=0.1,na.rm = TRUE, ) +
+  # line plot for 7 days average
+  geom_line(aes(x=date, y=new_cases_7dayavg), stat="identity", color="red",na.rm = TRUE) +
+  labs(title = "Coronavirus in the U.S.:\n Lastest Map and Case Count",
+       subtitle = "Updated January 18,2021,7:56 A.M. E.T.") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_classic() +
+  # horizonal lines
+  geom_hline(yintercept=0, linetype="dashed", color = "grey")+
+  geom_hline(yintercept=100000, linetype="dashed", color = "grey")+
+  geom_hline(yintercept=200000, linetype="dashed", color = "grey")+
+  geom_hline(yintercept=300000, linetype="dashed", color = "grey")+
+  geom_text(aes(date[2], 0, label = "0"),vjust= -0.5, color ="grey")+
+  geom_text(aes(date[2], 100000, label = "100,000"),vjust= -0.5, color ="grey")+   geom_text(aes(date[2], 200000, label = "200,000"),vjust= -0.5, color ="grey")+
+  geom_text(aes(date[10], 300000, label = "300,000 cases"),vjust= -0.5, color ="grey") +
+  # theme adjustment
+  theme(axis.text.y = element_blank(), axis.ticks.y=element_blank(),
+        axis.title.x=element_blank(), axis.title.y=element_blank()) +
+  scale_x_date(date_breaks = "1 month", date_labels =  "%b") +
+   theme(plot.title = element_text(color="black", size=24, face="bold"))+
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.subtitle = element_text(color="red", size=10, face="bold"))+
+theme(plot.subtitle = element_text(hjust = 0.5))
+
+```
+
+**Critique: Plot 1 was reproduced successfully both in numbers and plot patterns. The key factor here is the method for calculating 7 day average in the lag function. The raw data was cleaned and cleared for case numbers.**
+
+2. Table of cases, hospitalizations and deaths - the first table on the page
+
+![](nyt1.png){ width=75% }
+```{r}
+# new death and 7daysavg death
+subset <- subset %>% mutate(new_deaths = sum_deaths - lag(sum_deaths))
+subset$new_deaths_7dayavg = rollmean(subset$new_deaths, k = 7, fill = NA)
+
+# table 1
+totalrep_case <- subset$sum_cases[363]
+# nuance from the picture because of the updated data from that time
+jan17_case <- subset$new_cases[363]
+totalrep_death <- subset$sum_deaths[363]
+jan17_death <- subset$new_deaths[363]
+change14_case <- (subset$new_cases_7dayavg[363]-subset$new_cases_7dayavg[350])/subset$new_cases_7dayavg[351]
+change14_death <- (subset$new_deaths_7dayavg[363]-subset$new_deaths_7dayavg[350])/subset$new_deaths_7dayavg[350]
+
+#create table
+tab = matrix(c(totalrep_case,jan17_case,change14_case,totalrep_death,jan17_death,change14_death), ncol=3, nrow =2, byrow=TRUE)
+colnames(tab) = c('TOTAL REPORTED', 'ON JAN.17','14-DAY CHANGE')
+rownames(tab) = c('Cases','Deaths')
+format(tab, scientific = FALSE)
+round(tab,0)
+tab <- as.data.frame(tab)
+print(tab)
+
+```
+**Critique: Table 1 was reproduced partically successfully. The number of cases and death of "total reported" and "on Jan.17" are the same as the New York Times. The nuance is reasonable because the data I collected was much later than the screenshot shown. Thus, it may include more missed cases which didn't confirm at that time. However, the 14-day change numbers are wrong. I searched and tried more methods about this topic and still couldn't match the number. The main reason should be the wrong mathematics calculation methods. This is the bad part New York Times needs to improve they didn't give a detailed introduction about the methods and software they used, which made it non-reproducible.**
+
+3. The county-level map for previous week ('Hot spots') - the second plot on the page (only the 'Hot Spots' plot)
+
+![](nyt2.png){ width=75% }
+```{r, warning=FALSE}
+# data for counties
+subset2 <- counties %>% 
+  group_by(fips,date) %>% 
+  filter(date >= "2021-01-07" & date <= "2021-01-23") %>%
+  summarise(sum_cases = sum(cases)) %>% 
+mutate(new_cases = sum_cases - lag(sum_cases)) %>% mutate(new_cases_7dayavg = rollmean(new_cases, k = 7, fill = NA))
+# check for distribution
+# hist(subset2$new_cases_7dayavg)
+# wired data
+subset3 <- subset2[subset2$date == "2021-01-17",]
+# do some adjustment
+subset3$new_cases_7dayavg[subset3$new_cases_7dayavg > 250] <- 250
+subset3$new_cases_7dayavg[subset3$new_cases_7dayavg < 0 ] <- 0
+subset3 <- na.omit(subset3)
+
+#usmap
+library(usmap)
+plot_usmap(data=subset3, value="new_cases_7dayavg",color="#E31A1C") + 
+  scale_fill_continuous(low="#FED976", high="darkred",name = "Average daily cases per 100,000 people in past week", type="gradient") +
+  labs(title = "Hot Spots") +
+  theme(legend.position = "top") 
+
+#tried different colors 
+#"ggthemes::Red-Gold", 30
+#library("RColorBrewer")
+#brewer.pal(n = 8, name = "YlOrRd")
+## per 100,000 is the population size
+
+```
+
+**Critique: As we matched in the last table, the numbers for new cases in 7 days average are correct. However, this map is not the same as New York Times. The filtered data has wired distribution that both included minus and really big numbers for counties. I tried to do some adjustments to find the maps and methods they may use for selection. But it didn't work. There are a lot of possible reasons. We used R to deal with the data and we don't know what kind of software they used. Because some internal functions and visualization methods are different and will cause differences here. Also, the detailed methods for data cleaning and selection are unknown, which made it impossible to reproduce.**
+
+
+4. Table of cases by state - the second table on the page (do not need to include per 100,000 or per capita columns)
+
+![](nyt3.png){ width=75% }
+```{r, warning=FALSE}
+# get the sum_cases
+subset4 <- counties %>% filter(date == "2021-01-17")%>%
+   group_by(state) %>% 
+  summarise(sum_cases = sum(cases)) 
+
+# get the daily average
+subset5 <- counties %>% group_by(state,date) %>% 
+  summarise(sum_cases = sum(cases)) %>% 
+  filter(date >= "2021-01-07" & date <= "2021-01-23")  %>% 
+mutate(new_cases = sum_cases - lag(sum_cases)) %>% mutate(new_cases_7dayavg = rollmean(new_cases, k = 7, fill = NA)) %>% 
+filter(date == "2021-01-17") %>% 
+  subset(select = c(state, new_cases_7dayavg)) 
+
+# merge to the final subset
+subset4 <-merge(subset4, subset5,  by="state")
+
+# filter the target states and round
+subset6 <- subset4 %>% 
+  filter(state %in% c("Arizona", "California","South Carolina","Rhode Island", "Oklahoma","Georgia","Utah","Texas", "New York","Massachusetts")) %>% mutate_if(is.numeric, round)
+
+colnames(subset6) <- c('','TOTAL CASES','DAILY AVG. IN LAST 7 DAYS')
+# final table
+# adjust the order
+subset6[c(1,2,8,7,6,3,10,9,5,4),]
+
+```
+
+**Critique: Table 2 was reproduced successfully! Both "total cases" and "daily average in last 7 days" are correct for these states from New York Times. Nuance is caused maybe because more data were confirmed after that time and can be ignored. But I couldn't figure out why in this order for states. Descrending for case numbers is the most natural and understandable way.**
+
+
+
